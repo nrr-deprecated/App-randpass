@@ -1,0 +1,52 @@
+---
+
+# Change log for randpass
+
+- date: 2009-03-29
+  version: 1.08
+  changes:
+    - Fixed README and this change log
+    - Added to-do list
+
+- date: 2009-03-29
+  version: 1.07
+  changes:
+    - Added options -C, -r, and -M
+    - Fixed bug in :bin and :bin7 character sets
+
+- date: 2005-05-07
+  changes:
+    - Brought README up to date
+
+- date: 2005-05-07
+  version: 1.06
+  changes:
+    - Added -K|--nkuitse option because I got lazy
+    - Added -F|--freli because sometimes I'm slightly less lazy
+
+- date: 2004-11-13
+  version: 1.03
+  changes:
+    - Switched to Getopt::Long from hand-rolled command-line processing
+    - Added charset :bool
+    - Switched build scheme from Makefile.PL to normal script Makefile
+
+- date: 2003-07-04
+  version: 1.02
+  changes:
+    - Fixed specification of :bin and :bin7
+    - Added option -n | --count
+    - Added tests for most options
+
+- date: 2003-06-21
+  version: 1.01
+  changes:
+    - Removed references to non-existent Base-64 option.
+    - Fixed some packaging details.
+    - Added :ALPHA and :ALPHANUM character sets.
+    - First public release.
+
+- date: 2003-06-20
+  version: 1.00
+  note: First implementation
+

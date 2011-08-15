@@ -1,0 +1,70 @@
+randpass
+========
+
+Generate random passwords and passphrases.
+
+
+SYNOPSIS
+--------
+
+   randpass
+      [ -n num-to-generate ]
+      [ -w | -p num-words  ]
+      [ -l num-chars       ]
+      [ -c chars           ]
+      [ -C char-range      ]
+      [ -r required-chars  ]
+      [ -M max-rejects     ]
+      [ -s source-file     ]
+      [ -j join-string     ]
+      [ -P                 ]
+      [ -F                 ]
+
+See the script documentation for more information.
+
+
+INSTALLATION
+------------
+
+To install this module, type the following:
+
+   make
+   make test
+   make install
+
+To install somewhere other than the default (/usr/local/bin, most likely), do
+something like this:
+
+   make install INST_SCRIPT=/usr/local/bin
+
+
+PREREQUISITES
+-------------
+
+None.
+
+
+SEE ALSO
+--------
+
+These Perl modules do similar things:
+
+   Crypt::GeneratePassword
+   Crypt::PassGen
+   Crypt::RandPasswd
+   Crypt::YAPassGen
+   Data::Random
+   Data::Random::WordList
+   Data::SimplePassword
+   String::MkPasswd
+   String::Random
+
+
+COPYRIGHT
+---------
+
+Copyright 2003-2005, 2009 Paul M. Hoffman < nkuitse AT cpan DOT org >.
+
+This script is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.
+

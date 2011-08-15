@@ -1,0 +1,458 @@
+#!/usr/bin/perl -w
+
+use strict;
+use warnings;
+
+use File::Basename qw(basename);
+use Getopt::Long qw(:config posix_default gnu_compat no_ignore_case bundling);
+
+use vars qw($PROGRAM $VERSION);
+
+$PROGRAM = basename($0);
+$VERSION = '1.08';
+
+$| = 1;
+
+sub emit;
+sub msg;
+sub warning;
+sub error;
+sub done;
+
+# --- Set up globals
+
+my $num_warnings = 0;
+
+my $count = 1;
+my $phrase_len = 0;
+my $size = 5;
+my ($min_word_len, $max_word_len);
+my $source       = '/usr/share/dict/words';
+my $source_freli = '/usr/share/dict/freli';
+
+my $max_rejects = 5000;
+my @alpha = 'a'..'z';
+my @ALPHA = map uc, @alpha;
+my @num = 0..9;
+
+my %charset = (
+    ':std'      => [ 'A'..'H', 'J'..'N', 'P'..'Z', ('a'..'k', 'm', 'n', 'p'..'z') x 2, '2'..'9' ],
+    ':num'      => [                 @num ],
+    ':alpha'    => [ @ALPHA, @alpha       ],
+    ':lower'    => [         @alpha       ],
+    ':upper'    => [ @ALPHA               ],
+    ':ALPHA'    => [ @ALPHA               ],
+    ':alphanum' => [ @ALPHA, @alpha, @num ],
+    ':ALPHANUM' => [ @ALPHA,         @num ],
+    ':hex'      => [ @num, 'a'..'f' ],
+    ':HEX'      => [ @num, 'A'..'F' ],
+    ':bool'     => [ 0, 1           ],
+    ':bin'      => [ map chr, 0..255 ],
+    ':bin7'     => [ map chr, 0..127 ],
+);
+my @chars;
+my %min_occurrences;
+my @min_occurrence_tests;
+my $join = ' ';
+my $verbose;
+
+# --- Read command-line options
+
+GetOptions(
+    'w|word'     => sub { $phrase_len = 0 },
+    'p|phrase=i' => \$phrase_len,
+    's|source=s' => \$source,
+    'F|freli'    => sub { $source = $source_freli },
+    'l|word-length=s' => sub {
+        my ($name, $len) = @_;
+        $len =~ /^(\d+)(?:-(\d+))?$/
+            or error "Bad length spec: $len";
+        ($min_word_len, $max_word_len) = ($1, $2);
+        $min_word_len ||= 3;
+        $max_word_len ||= $min_word_len;
+    },
+    'c|chars=s' => sub {
+        my $c = $_[1];
+        if ($c =~ /^:/) {
+            exit usage("No such char set: $c")
+                unless exists $charset{$c};
+            push @chars, @{ $charset{$c} };
+        }
+        else {
+            push @chars, (split //, $c);
+        }
+    },
+    'C|range=s' => sub {
+        my ($b, $e) = split /-/, $_[1];
+        push @chars, $b..(defined $e ? $e : $b);
+    },
+    'n|count=i'  => \$count,
+    'j|join=s'   => \$join,
+    'P'  => sub {
+        $phrase_len = 2;
+        $min_word_len = 3;
+        $max_word_len = 5;
+        $source = $source_freli if -f $source_freli;
+    },
+    'r|required=s' => sub {
+        my $c = $_[1];
+        my $n = 1;
+        my @set;
+        if ($c =~ s/^(\d+)#//) {
+            $n = $1;
+        }
+        if ($c =~ /^:/) {
+            exit usage("No such char set: $c")
+                unless exists $charset{$c};
+            @set = @{ $charset{$c} };
+        }
+        else {
+            @set = split //;
+        }
+        push @min_occurrence_tests, sub {
+            my ($password) = @_;
+            return scalar grep { index($password, $_) > 0 } @set;
+        };
+    },
+    'M|max-rejects=s' => \$max_rejects,
+    'v|verbose'  => \$verbose,
+    'h|?|help'   => sub { exit help()    },
+    'V|version'  => sub { exit version() },
+) or exit usage();
+
+# --- Make some final adjustments to globals
+
+@chars = @{ $charset{':std'} } unless @chars;
+($min_word_len, $max_word_len) = $phrase_len ? (4,7) : (7,14)
+    unless defined $min_word_len;
+
+if ($phrase_len) {
+
+    # --- Generate passphrase(s) instead of password(s)
+    
+    # Brute force: read in *all* lines of the proper length
+    error "No such soure file: $source"
+        unless -f $source;
+    open SOURCE, $source
+        or error "Couldn't open source file '$source'";
+    my @words;
+    while (<SOURCE>) {
+        chomp;
+        my $len = length();
+        if ($len < $min_word_len || $len > $max_word_len) {
+            next;
+        }
+        push @words, $_;
+    }
+    close SOURCE;
+    
+    # Pick words randomly
+    while ($count--) {
+        my @phrase;
+        for (1..$phrase_len) {
+            my $word;
+            my $tries = scalar @words;
+            until (defined $word or $tries-- == 0) {
+                my $r = rand @words;
+                $word = $words[$r];
+                undef $words[$r];
+            }
+            error "Source doesn't have enough suitable words to finish the passphrase"
+                unless defined $word;
+            push @phrase, $word;
+        }
+        print join($join, @phrase), "\n";
+    }
+    
+}
+else {
+    
+    # --- Generate random word(s)
+    my $rejects = 0;
+    WORD:
+    while ($count) {
+        my $password = join '', @chars[
+            map { rand @chars }
+            ( 1..rand_in_range($min_word_len, $max_word_len) )
+        ];
+        # Make sure the password meets additional requirements
+        if (@min_occurrence_tests) {
+            # Must pass every test
+            foreach my $test (@min_occurrence_tests) {
+                if (!$test->($password)) {
+                    error "Too many passwords rejected"
+                        if ++$rejects > $max_rejects;
+                    next WORD;
+                }
+            }
+        }
+        print $password, "\n";
+        $count--;
+    }
+    
+}
+
+# --- Functions
+
+sub rand_in_range {
+    my ($min, $max) = @_;
+    return $min + int rand($max - $min + 1);
+}
+
+sub emit { print STDERR @_ }
+
+sub msg { emit map { "$_\n" } @_ }
+
+sub warning {
+    $num_warnings++;
+    emit "WARNING ($num_warnings): ", map { "$_\n" } @_;
+}
+
+sub error {
+    emit 'ERROR: ', map { "$_\n" } @_;
+    exit 1
+}
+
+sub usage {
+    print STDERR $_, "\n" for @_;
+    print "usage: $PROGRAM [ option... ]\n";
+    return 0;
+}
+
+sub version {
+    print "This is $PROGRAM version " if $verbose;
+    print "$VERSION\n";
+    return 0;
+}
+
+sub help {
+    print <<"EOS";
+Usage: $PROGRAM [ option... ]
+       $PROGRAM -h (or -? or --help)
+       $PROGRAM -V (or --version)
+Options:
+  -w, --word             Generate passwords (the default)
+  -p, --phrase NUM       Generate passphrases with the given number of words
+  -n, --count NUM        Number of passwords or passphrases to produce
+  -l, --word-length NUM  Password length (integer or range, e.g., \`3-5')
+  -c, --chars STRING     Specify characters to choose from (or named set)
+  -C, --range CHAR-CHAR  Specify a range of chars to choose from (e.g., \`A-Z')
+  -r, --required STRING  Specify chars that generated passwords must contain
+  -s, --source           File of words to use when building passphrases
+  -F, --freli            Use FRELI (same as -s /usr/share/dict/freli)
+  -j, --join             String to use in joining words in a passphrase
+  -P                     Use the author's favorite options by default
+  -v, --verbose          Be verbose
+  -h, --help             Print this help information
+  -V, --version          Print version information
+Character sets:
+  :std      :alpha    :lower    :upper    :ALPHA    :alphanum
+  :num      :hex      :HEX      :bool     :bin      :bin7
+EOS
+}
+
+sub done { exit 0 }
+
+
+=head1 NAME
+
+randpass - generate random passwords and passphrases
+
+=head1 SYNOPSIS
+
+randpass [ -w | -p NUMWORDS ] [ -s WORDSOURCE ] [ -l WORDLEN ]
+
+=head1 DESCRIPTION
+
+B<randpass> generates random passwords and passphrases to your specifications.
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<-w>, B<--word>
+
+Generate passwords (the default).
+
+=item B<-p>, B<--phrase> I<num>
+
+Generate passphrases with the specified number of words.  The passphrase
+that is generated will not contain duplicate words (e.g., C<urial hayseed
+dumpish urial>).  This may not be a range.
+
+When this option is used, options B<-c> and B<-C> are ignored.
+
+=item B<-n>, B<--count> I<num>
+
+Generate the specified number of passwords or passphrases.  This may not
+be a range.
+
+=item B<-l>, B<--word-length> I<number-or-range>
+
+The length of the password, or of each word in the passphrase.
+
+If a range is specified (e.g., C<--word-length 8-14>) then the length
+of the password (or of the words in the passphrase) will fall randomly
+within that range (including both endpoints).  Half-open ranges (e.g.,
+C<--word-length 3->) are not allowed.
+
+The default is 7-14 for passwords and 4-7 for passphrases.
+
+=item B<-c>, B<--chars> I<string-or-setname>
+
+The set of characters (specified as a sequence of characters) used in
+generating a password.  This is currently ignored if passphrases are being
+generated.
+
+You may specify a named set instead.  Choose among these...
+
+=over 4
+
+=item B<:std>
+
+  ('A'..'H', 'J'..'N', 'P'..'Z', ('a'..'k', 'm', 'n', 'p'..'z') x 2, '2'..'9')
+
+This is the default.  It omits digits and letters that may be mistaken for each
+other (C<l>, C<I>, C<1>; C<o>, C<O>, C<0>).
+
+=item B<:alpha>
+
+  ('A'..'Z', 'a'..'z')
+
+=item B<:lower>
+
+  ('a'..'z')
+
+=item B<:ALPHA> or B<:upper>
+
+  ('A'..'Z')
+
+=item B<:alphanum>
+
+  ('A'..'Z', 'a'..'z', '0'..'9')
+
+=item B<:num>
+
+  ('0'..'9')
+
+=item B<:hex>
+
+Hexadecimal digits (lowercase).
+
+  ('0'..'9', 'a'..'f')
+
+=item B<:HEX>
+
+Hexadecimal digits (uppercase).
+
+  ('0'..'9', 'A'..'F')
+
+=item B<:bool>
+
+Binary digits.
+
+  (0, 1)
+
+=item B<:bin>
+
+Binary data (bytes 0 through 255).
+
+  ("\x00".."\xFF")
+
+=item B<:bin7>
+
+Binary data (bytes 0 through 127).
+
+  ("\x00".."\x7F")
+
+=back
+
+Repeated use of this option is cumulative, so (for example) the following will
+generate passwords that may be expected to contain (on average) twice as many
+upper-case letters as lower-case letters:
+
+    randpass -c :upper -c :upper -c :lower
+
+=item B<-C>, B<--range> I<begin>-I<end>
+
+Specify a range of (ASCII) characters to use.  As is true of B<-c>, use of
+multiple B<-C> options is cumulative.
+
+Options B<-c> and B<-C> may be freely interspersed, and the order in which they
+are given is not significant, so the following are all equivalent:
+
+    randpass -c :upper -c :lower -c :num
+    randpass -C a-z    -C 0-9    -C A-Z
+    randpass -c :num   -c :upper -C a-z
+
+=item B<-r>, B<--required> [I<num>#]I<string-or-setname>
+
+Specifies that all generated passwords (B<not> passphrases) must have at least
+I<num> (default 1) occurrences of the characters specified by
+I<string-or-setname>, which may be a named set (e.g., C<:alphanum>) or a string
+of required characters (e.g., C<aeiou>).
+
+For example, the following will generate passwords with at least 2 digits and
+at least 1 of the given punctuation marks:
+
+    randpass -c :alphanum -c '!@%' -r '2#:num' -r '!@%'
+
+Any required characters must be specified in a B<-c> or B<-C> option.
+
+=item B<-M>, B<--maximum-rejects> I<num>
+
+The maximum number of passwords that may be rejected (default 5,000).  If this
+is exceeded, an error will result.
+
+=item B<-s>, B<--source> I<file>
+
+Specify the source file from which words will be drawn in generating
+a passphrase.  This file will typically consist of a single word
+per line (but creative uses of C<randpass> may do otherwise for interesting
+results).
+
+The default is C</usr/share/dict/words>.  The special file name C<->
+may be used to specify standard input.
+
+Note: If the source file doesn't have enough lines (of sufficient length)
+to generate the full passphrase, the program exits with code 1 and prints
+a suitable error message to standard error.
+
+=item B<-F>, B<--freli>
+
+Use the FRELI word list (C</usr/share/dict/freli> when generating passphrases.
+(See L<http://www.nkuitse.com/freli/> for more information about FRELI.)
+
+=item B<-j>, B<--join> I<string>
+
+When generating a passphrase, connect the words with the specified
+string rather than a space.
+
+=item B<-P>
+
+Uses the author's favorite options by default (C<-p 2 -l 3-5>) and adds the
+option C<-s /usr/share/dict/freli> if there is a file at that location.
+
+=item B<-V>, B<--version>
+
+Display version information.
+
+=item B<-h>, B<--help>
+
+Display help.
+
+=back
+
+=head1 AUTHOR
+
+Paul Hoffman ( nkuitse AT cpan DOT org )
+
+=head1 COPYRIGHT
+
+Copyright 2003-2008 Paul M. Hoffman.
+
+=head1 LICENSE
+
+This script is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.
+

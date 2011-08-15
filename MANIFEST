@@ -1,0 +1,15 @@
+CHANGES
+MANIFEST
+Makefile
+README
+TODO
+randpass
+t/k-words.txt
+t/option-c-01.t
+t/option-c-alpha.t
+t/option-j.t
+t/option-l.t
+t/option-n.t
+t/option-p.t
+t/option-s.t
+t/pod.t
